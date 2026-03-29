@@ -144,7 +144,7 @@ let W = window.innerWidth, H = window.innerHeight;
 // ── estado global ──
 let renderer, scene, camera;
 let yaw=0, pitch=0, pLocked=false;
-let keys={}, mDown=false, shootT=0;
+let keys={}, mDown=false, fDown=false, shootT=0;
 let state='intro', testMode=false;
 let introFinished=false;
 let hp, score, coins, wave, grenCnt, kills, ammo, maxAmmo;
@@ -1018,6 +1018,8 @@ function initGame(test){
   hp=testMode?99999:100; score=0; coins=testMode?99999:0;
   wave=0; grenCnt=2; kills=0; waveActive=false; nextWI=100; lastBM=0;
   bossDefeated=false; gameWon=false;
+  fDown=false;
+  mDown=false;
   playerYVel=0; isGrounded=true;
   reloading=false; relT=0;
   document.getElementById('rlbar').style.display='none';
@@ -1138,7 +1140,7 @@ function animate(now){
 
   // ── Auto-atirar ──
   shootT--;
-  if(mDown&&shootT<=0&&!reloading&&ammo>0){shoot();shootT=gRATE();}
+  if((mDown||fDown)&&shootT<=0&&!reloading&&ammo>0){shoot();shootT=gRATE();}
 
   // ── Loja auto ──
   if(!testMode){const nm=Math.floor(score/300);if(nm>lastBM){lastBM=nm;openShop();}}
@@ -1243,8 +1245,6 @@ function animate(now){
     m.mesh.lookAt(tgt);
     if(dist<.72&&!testMode){
       hp-=.28;
-      document.getElementById('hflash').style.background='rgba(200,0,0,.28)';
-      setTimeout(()=>{document.getElementById('hflash').style.background='rgba(200,0,0,0)';},140);
       updateHUD(); if(hp<=0){gameOver();return;}
     }
   }
@@ -1325,13 +1325,22 @@ document.addEventListener('keydown',e=>{
     playerYVel = 0.24;
     isGrounded = false;
   }
+  if((e.key==='f'||e.key==='F') && state==='playing'){
+    fDown=true;
+    if(shootT<=0&&!reloading&&ammo>0){shoot();shootT=gRATE();}
+  }
   if(e.key==='g'||e.key==='G') throwGrenade();
   if((e.key==='r'||e.key==='R')&&state==='playing'&&!reloading&&ammo<maxAmmo) startReload();
   if(e.key==='b'||e.key==='B'){if(state==='playing') openShop(); else if(state==='shop') closeShop();}
   if(e.key==='e'||e.key==='E') tryDestroyNest();
   if(e.key==='Escape'&&state==='shop') closeShop();
 });
-document.addEventListener('keyup',e=>{ if(state!=='intro') keys[e.key.toLowerCase()]=false; });
+document.addEventListener('keyup',e=>{
+  if(state!=='intro'){
+    keys[e.key.toLowerCase()]=false;
+    if(e.key==='f'||e.key==='F') fDown=false;
+  }
+});
 document.getElementById('btn_n').onclick=()=>{document.getElementById('ov').style.display='none';resetUpgrades();initGame(false);};
 document.getElementById('btn_t').onclick=()=>{document.getElementById('ov').style.display='none';resetUpgrades();initGame(true);};
 document.getElementById('menuBack').onclick=()=>{resetUpgrades();returnToMenu();};
