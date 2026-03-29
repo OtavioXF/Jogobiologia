@@ -75,7 +75,7 @@ html,body{width:100%;height:100%;background:#000;overflow:hidden;font-family:'Co
 <div id="wrap">
 
   <div id="intro">
-    <video id="introVideo" autoplay muted playsinline preload="auto">
+    <video id="introVideo" autoplay playsinline preload="auto">
       <source src="intro.mp4" type="video/mp4">
     </video>
     <div id="introShade"></div>
@@ -160,7 +160,19 @@ let prevT = 0;
 let weaponMesh=null, weaponMuzzle=null;
 let bossDefeated=false, gameWon=false;
 let playerYVel=0, groundY=1.65, isGrounded=true;
-
+let audioUnlocked=false, bossMusicStarted=false, lastFootstepAt=0;
+const audioBase = {
+  footstep: new Audio('sounds/footstep_move.wav'),
+  shot: new Audio('sounds/weapon_shot.wav'),
+  kill: new Audio('sounds/mosquito_kill.wav'),
+  boss: new Audio('sounds/boss_suspense.wav')
+};
+Object.values(audioBase).forEach(a=>{a.preload='auto';});
+audioBase.footstep.volume=.34;
+audioBase.shot.volume=.55;
+audioBase.kill.volume=.58;
+audioBase.boss.volume=.32;
+audioBase.boss.loop=true;
 
 const MAP=55, FENCE=57;
 
@@ -667,6 +679,43 @@ function tryProxSpawn(){
   }
 }
 
+function cloneAndPlay(base, volumeMul=1){
+  if(!audioUnlocked || !base) return;
+  try{
+    const a = base.cloneNode();
+    a.volume = Math.max(0, Math.min(1, (base.volume ?? 1) * volumeMul));
+    a.play().catch(()=>{});
+  }catch(e){}
+}
+function stopBossMusic(){
+  bossMusicStarted=false;
+  try{ audioBase.boss.pause(); audioBase.boss.currentTime=0; }catch(e){}
+}
+function startBossMusic(){
+  if(bossMusicStarted) return;
+  bossMusicStarted=true;
+  if(!audioUnlocked) return;
+  try{
+    audioBase.boss.currentTime=0;
+    audioBase.boss.play().catch(()=>{});
+  }catch(e){}
+}
+function unlockAudio(){
+  if(audioUnlocked) return;
+  audioUnlocked=true;
+  try{
+    const vid=document.getElementById('introVideo');
+    if(vid){
+      vid.muted=false;
+      vid.volume=1;
+      vid.play().catch(()=>{});
+    }
+  }catch(e){}
+  if(bossMusicStarted){
+    try{ audioBase.boss.play().catch(()=>{}); }catch(e){}
+  }
+}
+
 // ════════════════════════════════
 //  HUD
 // ════════════════════════════════
@@ -805,6 +854,7 @@ function shoot(){
     puff.userData={life:18+Math.floor(Math.random()*8),maxLife:24,maxR:.55};
     scene.add(puff); smokes.push(puff);
   }
+  cloneAndPlay(audioBase.shot, 1);
   if(weaponMesh){
     weaponMesh.position.z=0.07;
     weaponMesh.rotation.z=-0.035;
@@ -870,6 +920,7 @@ function destroyNest(n){
       const hf=document.getElementById('hflash');
       hf.style.background='rgba(200,0,0,.55)';
       setTimeout(()=>{if(state==='playing') hf.style.background='rgba(200,0,0,0)';},320);
+      startBossMusic();
       spawnMosq(true);
     },2200);
   }
@@ -879,6 +930,7 @@ function destroyNest(n){
 //  FLUXO DE JOGO
 // ════════════════════════════════
 function returnToMenu(){
+  stopBossMusic();
   state='menu';
   if(document.exitPointerLock) document.exitPointerLock();
   document.getElementById('shop').style.display='none';
@@ -898,6 +950,7 @@ function checkWin(){
   if(gameWon) return;
   if(bossDefeated && mosqs.length===0){
     gameWon=true;
+    stopBossMusic();
     state='won';
     if(document.exitPointerLock) document.exitPointerLock();
     showMsg('☠ ÁREA LIMPA! VOCÊ SOBREVIVEU!',320);
@@ -945,9 +998,11 @@ function setupIntro(){
     const noSource = !vid.currentSrc && vid.networkState===vid.NETWORK_NO_SOURCE;
     if(noSource) finishIntro();
   }, 600);
+  vid.muted = false;
+  vid.volume = 1;
   const playPromise = vid.play?.();
   if(playPromise && playPromise.catch){
-    playPromise.catch(()=>{ /* muted autoplay may still fail; keep overlay until user skips */ });
+    playPromise.catch(()=>{ /* browsers may block autoplay with audio until first interaction */ });
   }
 }
 
@@ -970,7 +1025,8 @@ function initGame(test){
   camera.position.set(0,groundY,0); yaw=0; pitch=0;
   spawnCooldown=0; nestsDestroyed=0; bossSpawned=false;
   buildNests(); updateNestHUD();
-  if(testMode){document.getElementById('bossdark').style.opacity='1';document.getElementById('vignette').style.background='radial-gradient(ellipse at center, rgba(0,0,0,.15) 20%, rgba(0,0,0,.93) 100%)';scene.background = new THREE.Color(0x020508);scene.fog = new THREE.FogExp2(0x020508, 0.04);spawnMosq(true);for(let i=0;i<6;i++) spawnMosq(false);waveActive=true;wave=1;}
+  stopBossMusic();
+  if(testMode){document.getElementById('bossdark').style.opacity='1';document.getElementById('vignette').style.background='radial-gradient(ellipse at center, rgba(0,0,0,.15) 20%, rgba(0,0,0,.93) 100%)';scene.background = new THREE.Color(0x020508);scene.fog = new THREE.FogExp2(0x020508, 0.04);startBossMusic();spawnMosq(true);for(let i=0;i<6;i++) spawnMosq(false);waveActive=true;wave=1;}
   else{document.getElementById('bossdark').style.opacity='0';document.getElementById('vignette').style.background='radial-gradient(ellipse at center,transparent 50%,rgba(0,0,0,.7) 100%)';scene.background = new THREE.Color(0x0a1a0f);scene.fog = new THREE.FogExp2(0x0a1a0f, 0.025);startWave();}
   updateHUD(); state='playing';
   document.getElementById('ov').style.display='none';
@@ -984,6 +1040,7 @@ function startWave(){
   updateHUD(); showMsg('Onda '+wave+'!',80);
 }
 function gameOver(){
+  stopBossMusic();
   state='over';
   if(document.exitPointerLock) document.exitPointerLock();
   const ov=document.getElementById('ov');
@@ -1073,6 +1130,11 @@ function animate(now){
   np.y=nextY;
   camera.position.copy(np);
   camera.rotation.y=yaw; camera.rotation.x=pitch;
+  const isMovingNow = mv.lengthSq() > 0.0001;
+  if(isMovingNow && isGrounded && now - lastFootstepAt > 360){
+    lastFootstepAt = now;
+    cloneAndPlay(audioBase.footstep, .9 + Math.random()*.2);
+  }
 
   // ── Auto-atirar ──
   shootT--;
@@ -1108,7 +1170,7 @@ function animate(now){
       const m=mosqs[j]; if(m.dead||hit) continue;
       if(bp.distanceTo(m.mesh.position)<.58){
         m.hp-=b.mesh.userData.dmg; b.dead=true; scene.remove(b.mesh); hit=true;
-        if(m.hp<=0){m.dead=true;scene.remove(m.mesh);if(!testMode){score+=10;coins+=20;kills++;}updateHUD();}
+        if(m.hp<=0){m.dead=true;scene.remove(m.mesh);if(!testMode){score+=10;coins+=20;kills++;}cloneAndPlay(audioBase.kill, 1);updateHUD();}
       }
     }
     if(!hit) for(let j=0;j<nests.length;j++){
@@ -1129,9 +1191,11 @@ function animate(now){
         scene.background = new THREE.Color(0x0a1a0f);
         scene.fog = new THREE.FogExp2(0x0a1a0f, 0.025);
         document.getElementById('hflash').style.background='rgba(200,0,0,0)';
+        bossDefeated=true;
+        stopBossMusic();
         score+=1500; coins+=400; kills++;
-        showMsg('☠ RAINHA DESTRUÍDA! VOCÊ VENCEU! +1500 pts',400);
-        setTimeout(()=>gameOver(),6000);
+        cloneAndPlay(audioBase.kill, 1.1);
+        showMsg('☠ RAINHA DESTRUÍDA! ELIMINE O RESTO DO ENXAME!',400);
       }
       updateHUD();
     }
@@ -1240,12 +1304,14 @@ document.addEventListener('mousemove',e=>{
   pitch=Math.max(-1.2,Math.min(1.2,pitch-e.movementY*.002));
 });
 document.addEventListener('mousedown',e=>{
+  unlockAudio();
   if(e.button===2){throwGrenade();return;}
   mDown=true; if(state==='playing'&&pLocked) shoot();
 });
 document.addEventListener('mouseup',()=>mDown=false);
 document.addEventListener('contextmenu',e=>e.preventDefault());
 document.addEventListener('keydown',e=>{
+  unlockAudio();
   const k=e.key.toLowerCase();
   if(state==='intro'){
     if(e.code==='Space' || k===' '){
@@ -1270,6 +1336,8 @@ document.getElementById('btn_n').onclick=()=>{document.getElementById('ov').styl
 document.getElementById('btn_t').onclick=()=>{document.getElementById('ov').style.display='none';resetUpgrades();initGame(true);};
 document.getElementById('menuBack').onclick=()=>{resetUpgrades();returnToMenu();};
 document.getElementById('closeS').onclick=closeShop;
+document.addEventListener('touchstart', unlockAudio, {passive:true});
+document.addEventListener('click', unlockAudio);
 window.addEventListener('resize',()=>{
   W=innerWidth;H=innerHeight;
   renderer.setSize(W,H);
