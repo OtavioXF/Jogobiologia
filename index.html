@@ -153,6 +153,8 @@ let waveActive, nextWI, lastBM;
 let reloading=false, relT=0;
 let mosqs=[], bullets=[], grens=[], smokes=[], bossObj=null;
 let wingT=0, globalT=0;
+let bobT=0,bobAmp=0,camShakeT=0,camShakeAmp=0;
+let bodycamRollZ=0,coinPopups=[];
 let nests=[], nestsDestroyed=0, bossSpawned=false;
 let spawnCooldown=0;
 let mmCtx = document.getElementById('mm').getContext('2d');
@@ -657,7 +659,11 @@ function teleportBoss(){
     ok=Math.hypot(tx-px,tz-pz)>9;
     tries++;
   }
+  const _tp1=bossObj.mesh.position.clone();
+  for(let _i=0;_i<12;_i++){const _m=new THREE.Mesh(new THREE.SphereGeometry(.12,5,4),new THREE.MeshLambertMaterial({color:0xff2200,transparent:true,opacity:.85}));const _a=Math.random()*Math.PI*2,_r=Math.random()*1.8;_m.position.set(_tp1.x+Math.cos(_a)*_r,_tp1.y+Math.random()*2.5,_tp1.z+Math.sin(_a)*_r);_m.userData={life:55,maxLife:55,maxR:0,vel:new THREE.Vector3((Math.random()-.5)*.08,0.05+Math.random()*.07,(Math.random()-.5)*.08)};scene.add(_m);smokes.push(_m);}
   bossObj.mesh.position.set(tx,2.8+Math.random()*3,tz);
+  for(let _i=0;_i<12;_i++){const _m=new THREE.Mesh(new THREE.SphereGeometry(.12,5,4),new THREE.MeshLambertMaterial({color:0xff6600,transparent:true,opacity:.9}));const _a=Math.random()*Math.PI*2,_r=Math.random()*1.8;_m.position.set(tx+Math.cos(_a)*_r,0.5+Math.random()*2,tz+Math.sin(_a)*_r);_m.userData={life:55,maxLife:55,maxR:0,vel:new THREE.Vector3((Math.random()-.5)*.08,0.04+Math.random()*.07,(Math.random()-.5)*.08)};scene.add(_m);smokes.push(_m);}
+  camShakeAmp=Math.min(0.08,camShakeAmp+0.06);
   showMsg('⚠ A RAINHA SE TELEPORTOU!',90);
 }
 function spawnMosq(isBoss){
@@ -829,6 +835,31 @@ function resetUpgrades(){
 }
 
 // ════════════════════════════════
+//  MOEDAS FLUTUANTES
+// ════════════════════════════════
+function spawnCoinPopup(pos,label="+20"){
+  const div=document.createElement("div");
+  div.textContent=label+" 🪙";
+  div.style.cssText="position:absolute;pointer-events:none;font-size:13px;font-weight:700;color:#f0c040;text-shadow:0 0 8px rgba(255,200,0,.9),1px 1px 3px #000;letter-spacing:1px;z-index:30;opacity:1;white-space:nowrap";
+  document.getElementById("wrap").appendChild(div);
+  coinPopups.push({pos:pos.clone(),div,life:90});
+}
+function updateCoinPopups(){
+  coinPopups=coinPopups.filter(cp=>{
+    cp.life--;
+    if(cp.life<=0){cp.div.remove();return false;}
+    const p=cp.pos.clone();p.project(camera);
+    if(p.z>=1){cp.div.style.display="none";return true;}
+    const sx=(p.x+1)/2*W,sy=(-p.y+1)/2*H;
+    cp.pos.y+=0.018;
+    cp.div.style.left=sx+"px";cp.div.style.top=sy+"px";
+    cp.div.style.transform="translate(-50%,-50%)";
+    cp.div.style.opacity=Math.min(1,cp.life/20);
+    cp.div.style.display="block";
+    return true;
+  });
+}
+// ════════════════════════════════
 //  ARMAS
 // ════════════════════════════════
 function shoot(){
@@ -900,6 +931,7 @@ function destroyNest(n){
   n.destroyed=true; nestsDestroyed++;
   scene.remove(n.mesh);
   score+=300; coins+=80;
+  if(!testMode)spawnCoinPopup(new THREE.Vector3(n.x,1.5,n.z),"+80");
   showMsg(`🔥 NINHO ${n.idx+1} DESTRUÍDO! +300 pts`,200);
   for(let i=0;i<7;i++){
     const sm=new THREE.Mesh(new THREE.SphereGeometry(.6,6,4),
@@ -1085,7 +1117,7 @@ function animate(now){
     weaponMesh.position.z += (0.03 - weaponMesh.position.z) * 0.22;
     weaponMesh.rotation.x += (0.0 - weaponMesh.rotation.x) * 0.18;
     weaponMesh.rotation.y += (0.0 - weaponMesh.rotation.y) * 0.18;
-    weaponMesh.rotation.z += (0.0 - weaponMesh.rotation.z) * 0.18;
+    weaponMesh.rotation.z += (-bodycamRollZ*0.4 - weaponMesh.rotation.z) * 0.14;
   }
 
   // ── Vagalumes ──
@@ -1132,9 +1164,24 @@ function animate(now){
   np.z=Math.max(-MAP,Math.min(MAP,np.z));
   np.y=nextY;
   camera.position.copy(np);
-  camera.rotation.y=yaw; camera.rotation.x=pitch;
-  const isMovingNow = mv.lengthSq() > 0.0001;
-  if(isMovingNow && isGrounded && now - lastFootstepAt > 360){
+  const strafeSign=(keys["a"]||keys["arrowleft"])?-1:(keys["d"]||keys["arrowright"])?1:0;
+  bodycamRollZ+=(strafeSign*0.022-bodycamRollZ)*0.1;
+  const isMovingNow2=mv.lengthSq()>0.0001;
+  const moveFrac=isMovingNow2?Math.min(1,mv.length()/spd):0;
+  bobAmp+=(moveFrac-bobAmp)*0.12;
+  if(isMovingNow2&&isGrounded) bobT+=dt*8.5;
+  if(camShakeAmp>0.001){camShakeAmp*=0.82;camShakeT+=dt*38;}else camShakeAmp=0;
+  const bobXv=Math.sin(bobT)*0.008*bobAmp;
+  const bobYv=Math.abs(Math.sin(bobT))*0.007*bobAmp-0.001*bobAmp;
+  const shX=Math.sin(camShakeT*1.7)*camShakeAmp;
+  const shY=Math.sin(camShakeT*2.3)*camShakeAmp*0.7;
+  const brX=Math.sin(globalT*0.9)*0.0018;
+  const brY=Math.sin(globalT*0.5)*0.0012;
+  camera.rotation.order="YXZ";
+  camera.rotation.y=yaw+bobXv+shX+brX;
+  camera.rotation.x=pitch+bobYv+shY+brY;
+  camera.rotation.z=bodycamRollZ;
+  if(isMovingNow2 && isGrounded && now - lastFootstepAt > 360){
     lastFootstepAt = now;
     cloneAndPlay(audioBase.footstep, .9 + Math.random()*.2);
   }
@@ -1173,7 +1220,7 @@ function animate(now){
       const m=mosqs[j]; if(m.dead||hit) continue;
       if(bp.distanceTo(m.mesh.position)<.58){
         m.hp-=b.mesh.userData.dmg; b.dead=true; scene.remove(b.mesh); hit=true;
-        if(m.hp<=0){m.dead=true;scene.remove(m.mesh);if(!testMode){score+=10;coins+=20;kills++;}cloneAndPlay(audioBase.kill, 1);updateHUD();}
+        if(m.hp<=0){m.dead=true;scene.remove(m.mesh);if(!testMode){score+=10;coins+=20;kills++;spawnCoinPopup(m.mesh.position);}cloneAndPlay(audioBase.kill, 1);updateHUD();}
       }
     }
     if(!hit) for(let j=0;j<nests.length;j++){
@@ -1196,7 +1243,7 @@ function animate(now){
         document.getElementById('hflash').style.background='rgba(200,0,0,0)';
         bossDefeated=true;
         stopBossMusic();
-        score+=1500; coins+=400; kills++;
+        score+=1500; coins+=400; kills++; if(!testMode)spawnCoinPopup(bossObj.mesh.position,"+400");
         cloneAndPlay(audioBase.kill, 1.1);
         showMsg('☠ RAINHA DESTRUÍDA! ELIMINE O RESTO DO ENXAME!',400);
       }
@@ -1223,8 +1270,9 @@ function animate(now){
   for(let i=0;i<smokes.length;i++){
     const sm=smokes[i]; sm.userData.life--;
     const pct=sm.userData.life/sm.userData.maxLife;
-    sm.scale.setScalar(sm.userData.maxR*(1-pct*.28));
-    sm.material.opacity=pct*.42;
+    if(sm.userData.vel){sm.position.add(sm.userData.vel);sm.userData.vel.y-=0.002;}
+    sm.scale.setScalar(sm.userData.maxR?(sm.userData.maxR*(1-pct*.28)):1);
+    if(sm.material)sm.material.opacity=pct*.42;
     if(sm.userData.life<=0) scene.remove(sm);
   }
   smokes=smokes.filter(s=>s.userData.life>0);
@@ -1241,11 +1289,14 @@ function animate(now){
       m.zigT++; if(m.zigT>35+Math.random()*50){m.zigDir*=-1;m.zigT=0;}
       const dir=tgt.clone().sub(m.mesh.position); dir.y*=.45; dir.normalize();
       const sv=new THREE.Vector3(-dir.z,0,dir.x);
-      m.mesh.position.addScaledVector(dir,m.spd*1.18); m.mesh.position.addScaledVector(sv,m.zigDir*.06);
+      const mosqSpeed=Math.min(m.spd*1.18,0.065);
+      m.mesh.position.addScaledVector(dir,mosqSpeed); m.mesh.position.addScaledVector(sv,m.zigDir*.06);
     }
     m.mesh.lookAt(tgt);
     if(dist<.72&&!testMode){
       hp-=.28;
+      camShakeAmp=Math.min(0.045,camShakeAmp+0.015);
+      {const hf2=document.getElementById("hflash");hf2.style.background="rgba(200,0,0,0.32)";setTimeout(()=>hf2.style.background="rgba(200,0,0,0)",120);}
       updateHUD(); if(hp<=0){gameOver();return;}
     }
   }
@@ -1276,6 +1327,8 @@ function animate(now){
     const bd=bossObj.mesh.position.distanceTo(tgt);
     if(bd<4.6&&!testMode){
       hp-=1.05;
+      camShakeAmp=Math.min(0.09,camShakeAmp+0.05);
+      {const hf3=document.getElementById("hflash");hf3.style.background="rgba(200,0,0,0.55)";setTimeout(()=>hf3.style.background="rgba(200,0,0,0)",180);}
       updateHUD(); if(hp<=0){gameOver();return;}
     }
     updateHUD();
@@ -1288,6 +1341,7 @@ function animate(now){
     checkWin();
   }
 
+  updateCoinPopups();
   drawMinimap();
 }
 
